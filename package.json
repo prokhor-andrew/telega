@@ -1,0 +1,20 @@
+{
+  "name": "telega",
+  "version": "1.0.0",
+  "description": "Terminal client for Telegram",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "keywords": [
+    "telegram",
+    "terminal",
+    "cli"
+  ],
+  "author": "Andrii Prokhorenko",
+  "type": "module",
+  "license": "MIT",
+  "dependencies": {
+    "@inquirer/prompts": "^7.10.1"
+  }
+}
