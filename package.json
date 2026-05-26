@@ -17,7 +17,9 @@
   "dependencies": {
     "@inquirer/prompts": "^7.10.1",
     "@types/node": "^25.9.1",
-    "npx": "^10.2.2",
+    "keytar": "^7.9.0",
+    "npx": "^3.0.0",
+    "telegram": "^2.26.22",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3"
   }
