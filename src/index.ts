@@ -64,14 +64,13 @@ async function mainFlow(): Promise<void> {
             process.exit(0) 
         case "add_account":
             await addAccount(env)
-            await mainFlow()
-            break
+        await mainFlow()
+        break
         default:
             const userToken = choice 
-            const client = await useAccount(userToken, env)
-            console.log("test")
-            await signedFlow(client)
-            break
+        const client = await useAccount(userToken, env)
+        await signedFlow(client)
+        break
     }
 }
 
@@ -98,7 +97,7 @@ function getVisibleName(me: Api.User): string {
     }
 
     if (firstName !== "" && lastName !== "") {
-       return firstName + " " + lastName
+        return firstName + " " + lastName
     } 
 
     const username = me.username ?? ""
@@ -126,6 +125,16 @@ async function signedFlow(client: TelegramClient) : Promise<void> {
 
     const items = mapToSelectItemList(accountsMap) 
 
+
+    await step1Scope(client, userId, name, items)
+}
+
+async function step1Scope(
+    client: TelegramClient,
+    userId: string,
+    name: string, 
+    items: SelectItem[]
+): Promise<void> {
     const choice = await customSelect({
         message: `${name}`,
         choices: [
@@ -140,31 +149,37 @@ async function signedFlow(client: TelegramClient) : Promise<void> {
     switch (choice) {
         case "get_chats": 
             const dialogs = await client.getDialogs()
-            await showDialogs(dialogs)
-            break
+        await showDialogs(client, userId, name, items, dialogs)
+        break
         case "sign_out": 
             await client.invoke(new Api.auth.LogOut())
-            await keytar.deletePassword(tokenStorageName, userId)
-            await keytar.deletePassword(nameStorageName, userId)
-            await mainFlow()
-            break
+        await keytar.deletePassword(tokenStorageName, userId)
+        await keytar.deletePassword(nameStorageName, userId)
+        await mainFlow()
+        break
         case "add_account":
             await addAccount(client)
-            await signedFlow(client)
-            break
+        await signedFlow(client)
+        break
         case "quit_value":
             process.exit(0)
         default:
             const userToken = choice
-            const env = getEnvVariables()
-            await client.disconnect()
-            const newClient = await useAccount(userToken, env)
-            await signedFlow(newClient)
-            break
+        const env = getEnvVariables()
+        await client.disconnect()
+        const newClient = await useAccount(userToken, env)
+        await signedFlow(newClient)
+        break
     }
 } 
 
-async function showDialogs(dialogs: TotalList<Dialog>): Promise<void> {
+async function showDialogs(
+    client: TelegramClient,
+    userId: string,
+    name: string,
+    mainMenuItems: SelectItem[],
+    dialogs: TotalList<Dialog>
+): Promise<void> {
     const items = dialogs.map(dialog => {
         const unreadStr = dialog.unreadCount !== 0 ? ` (${dialog.unreadCount} unread)` : ""
         return {
@@ -183,6 +198,7 @@ async function showDialogs(dialogs: TotalList<Dialog>): Promise<void> {
 
     switch (choice) {
         case "back":
+            await step1Scope(client, userId, name, mainMenuItems)
             break
         default:
             break
@@ -203,7 +219,7 @@ async function addAccount(env: EnvVariables): Promise<void> {
 
     const newToken = (client.session as StringSession).save()
     const me = await client.getMe()
-   
+
     const name = getVisibleName(me)
 
     const userId = `${me.id}`
