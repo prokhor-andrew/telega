@@ -6,7 +6,8 @@ import keytar from "keytar";
 import type { TotalList } from "telegram/Helpers.js";
 import type { Dialog } from "telegram/tl/custom/dialog.js";
 
-const storageName = "telega";
+const tokenStorageName = "telega";
+const nameStorageName = "telega_name_storage" 
 
 type EnvVariables = {
     apiId: number,
@@ -25,8 +26,8 @@ async function main(): Promise<void> {
 }
 
 async function mainFlow(): Promise<void> {
-    const accounts = await getAccounts()    
-    const items = mapToSelectItemList(accounts)
+    const accountsMap = await getAccounts()    
+    const items = mapToSelectItemList(accountsMap)
 
     const choice = await select({
         message: "Select:",
@@ -36,7 +37,7 @@ async function mainFlow(): Promise<void> {
             { name: "Quit", value: "quit_value" },
         ],
         theme: { keybindings: [ "vim" ] },
-    }) 
+    })
 
     const env = getEnvVariables()
     switch (choice) {
@@ -49,6 +50,7 @@ async function mainFlow(): Promise<void> {
         default:
             const userToken = choice 
             const client = await useAccount(userToken, env)
+            console.log("test")
             await signedFlow(client)
             break
     }
@@ -124,7 +126,8 @@ async function signedFlow(client: TelegramClient) : Promise<void> {
             break
         case "sign_out": 
             await client.invoke(new Api.auth.LogOut())
-            await keytar.deletePassword(storageName, userId)
+            await keytar.deletePassword(tokenStorageName, userId)
+            await keytar.deletePassword(nameStorageName, userId)
             await mainFlow()
             break
         case "add_account":
@@ -183,10 +186,12 @@ async function addAccount(env: EnvVariables): Promise<void> {
 
     const newToken = (client.session as StringSession).save()
     const me = await client.getMe()
+   
+    const name = getVisibleName(me)
 
     const userId = `${me.id}`
-    await keytar.setPassword(storageName, userId, newToken)
-
+    await keytar.setPassword(tokenStorageName, userId, newToken)
+    await keytar.setPassword(nameStorageName, userId, name)
 
     await client.disconnect()
 }
@@ -231,20 +236,39 @@ async function getPhoneCode(): Promise<string> {
     }
 }
 
-async function getAccounts(): Promise<Map<string, string>> {
-    const accounts = await keytar.findCredentials(storageName)
-    const accountMap = new Map<string, string>()
-    accounts.forEach(account => {
-        accountMap.set(account.account, account.password)
-    })
-    return accountMap
+type NameToken = {
+    name: string,
+    token: string,
 }
 
-function mapToSelectItemList(map: Map<string, string>): SelectItem[] {
+async function getAccounts(): Promise<Map<string, NameToken>> {
+    const tokensAccounts = await keytar.findCredentials(tokenStorageName)
+    const namesAccounts = await keytar.findCredentials(nameStorageName) 
+
+    const accountsMap = new Map<string, NameToken>()
+
+    tokensAccounts.forEach(tokenAccount => {
+        namesAccounts.forEach(nameAccount => {
+            if (tokenAccount.account === nameAccount.account) {
+                accountsMap.set(
+                    nameAccount.account, 
+                    { 
+                        name: nameAccount.password, 
+                        token: tokenAccount.password 
+                    }
+                )
+            }
+        })
+    })
+    return accountsMap
+}
+
+function mapToSelectItemList(map: Map<string, NameToken>): SelectItem[] {
     const items = map.entries().map((entry) => {
         return {
-            name: entry[0], value: entry[1],
+            name: entry[1].name, 
+            value: entry[1].token,
         }
     })
     return [...items]
-} 
+}
