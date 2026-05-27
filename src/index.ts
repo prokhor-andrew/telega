@@ -25,18 +25,37 @@ async function main(): Promise<void> {
     await mainFlow()
 }
 
+async function customSelect(args: {
+    message: string,
+    choices: readonly SelectItem[],
+}): Promise<string> {
+    const { message, choices } = args
+    try {
+        return await select({
+            message: message,
+            choices: choices,
+            loop: false,
+            theme: { keybindings: [ "vim" ] },
+        })
+    } catch (error) {
+        if (error instanceof ExitPromptError) {
+            process.exit(0)
+        }
+        throw error
+    }
+}
+
 async function mainFlow(): Promise<void> {
     const accountsMap = await getAccounts()    
     const items = mapToSelectItemList(accountsMap)
 
-    const choice = await select({
+    const choice = await customSelect({
         message: "Select:",
         choices: [
             ...items,
             { name: "Add Account", value: "add_account" },
             { name: "Quit", value: "quit_value" },
         ],
-        theme: { keybindings: [ "vim" ] },
     })
 
     const env = getEnvVariables()
@@ -107,7 +126,7 @@ async function signedFlow(client: TelegramClient) : Promise<void> {
 
     const items = mapToSelectItemList(accountsMap) 
 
-    const choice = await select({
+    const choice = await customSelect({
         message: `${name}`,
         choices: [
             { name: "Get Chats", value: "get_chats" },
@@ -116,7 +135,6 @@ async function signedFlow(client: TelegramClient) : Promise<void> {
             { name: "Add Account", value: "add_account" },
             { name: "Quit", value: "quit_value" },
         ],
-        theme: { keybindings: [ "vim" ] },
     }) 
 
     switch (choice) {
@@ -155,13 +173,12 @@ async function showDialogs(dialogs: TotalList<Dialog>): Promise<void> {
         }
     })
 
-    const choice = await select({
+    const choice = await customSelect({
         message: "Dialogs:",
         choices: [
             ...items,
             { name: "Back", value: "back" },
         ],
-        theme: { keybindings: [ "vim" ] },
     })
 
     switch (choice) {
