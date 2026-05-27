@@ -176,8 +176,8 @@ async function showDialogs(dialogs: TotalList<Dialog>): Promise<void> {
     const choice = await customSelect({
         message: "Dialogs:",
         choices: [
-            ...items,
             { name: "Back", value: "back" },
+            ...items,
         ],
     })
 
