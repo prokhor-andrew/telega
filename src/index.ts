@@ -3,8 +3,8 @@ import { StringSession } from "telegram/sessions/StringSession.js";
 import { input, password, select } from "@inquirer/prompts";
 import { ExitPromptError } from "@inquirer/core";
 import keytar from "keytar";
-import { auth } from "telegram/client/index.js";
-import type { UserInfo } from "node:os";
+import type { TotalList } from "telegram/Helpers.js";
+import type { Dialog } from "telegram/tl/custom/dialog.js";
 
 const storageName = "telega";
 
@@ -49,7 +49,7 @@ async function mainFlow(): Promise<void> {
         default:
             const userToken = choice 
             const client = await useAccount(userToken, env)
-            await signedFlow(client, items)
+            await signedFlow(client)
             break
     }
 }
@@ -119,6 +119,8 @@ async function signedFlow(client: TelegramClient) : Promise<void> {
 
     switch (choice) {
         case "get_chats": 
+            const dialogs = await client.getDialogs()
+            await showDialogs(dialogs)
             break
         case "sign_out": 
             await client.invoke(new Api.auth.LogOut())
@@ -141,6 +143,32 @@ async function signedFlow(client: TelegramClient) : Promise<void> {
     }
 } 
 
+async function showDialogs(dialogs: TotalList<Dialog>): Promise<void> {
+    const items = dialogs.map(dialog => {
+        const unreadStr = dialog.unreadCount !== 0 ? ` (${dialog.unreadCount} unread)` : ""
+        return {
+            name: dialog.title + unreadStr,     
+            value: `${dialog.id ?? 0}`
+        }
+    })
+
+    const choice = await select({
+        message: "Dialogs:",
+        choices: [
+            ...items,
+            { name: "Back", value: "back" },
+        ],
+        theme: { keybindings: [ "vim" ] },
+    })
+
+    switch (choice) {
+        case "back":
+            break
+        default:
+            break
+    }
+}
+
 async function addAccount(env: EnvVariables): Promise<void> {
     const client = new TelegramClient(new StringSession(), env.apiId, env.apiHash, {
         reconnectRetries: 5
@@ -156,9 +184,8 @@ async function addAccount(env: EnvVariables): Promise<void> {
     const newToken = (client.session as StringSession).save()
     const me = await client.getMe()
 
-    const userId = me.id
-    const userIdStr = `${userId}`
-    await keytar.setPassword(storageName, userIdStr, newToken)
+    const userId = `${me.id}`
+    await keytar.setPassword(storageName, userId, newToken)
 
 
     await client.disconnect()
