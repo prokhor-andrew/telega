@@ -201,8 +201,13 @@ async function showDialogs(
             await step1Scope(client, userId, name, mainMenuItems)
             break
         default:
+            await showMessages(client, choice)
             break
     }
+}
+
+async function showMessages(client: TelegramClient, dialogId: string): Promise<void> {
+    console.log("dialog ID: " + dialogId)
 }
 
 async function addAccount(env: EnvVariables): Promise<void> {
