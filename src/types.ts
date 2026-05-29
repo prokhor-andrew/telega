@@ -24,4 +24,5 @@ export enum SignedFlowOption {
     signOut, 
     dialogs, 
     switchAccount,  
+    profile,
 } 

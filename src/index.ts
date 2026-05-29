@@ -1,4 +1,4 @@
-import { Api, TelegramClient } from "telegram";
+import { Api, client, TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/StringSession.js";
 import keytar from "keytar";
 import { type AccCredential, type AccInUse, SignedFlowOption } from "./types.js";
@@ -189,6 +189,21 @@ async function signedFlow(accInUse: AccInUse): Promise<void> {
             term("dialogs")
             term("\n")
             break
+        case SignedFlowOption.profile:
+            const profileInfo = await accInUse.client.getMe()
+            term("\n")
+            term(`First name = ${profileInfo.firstName}`)
+            term("\n")
+            term(`Last name = ${profileInfo.lastName}`)
+            term("\n")
+            term(`Username = ${profileInfo.username}`)
+            term("\n")
+            term(`Phone = ${profileInfo.phone}`)
+            term("\n")
+            term("\n")
+
+            await signedFlow(accInUse)
+            break
         case SignedFlowOption.switchAccount:
             const accounts = await getAccounts() 
             const currentIndex = accounts.findIndex((account) => {
@@ -246,6 +261,10 @@ function getVisibleName(me: Api.User): string {
     return `${me.id}`
 }
 
+function isProfile(command: string): boolean {
+    return command === "p" 
+}
+
 function isQuit(command: string): boolean {
     return command === "q" || command === "CTRL_C"
 }
@@ -272,7 +291,7 @@ function isSignOut(command: string): boolean {
 
 function getSignedFlowOption(): Promise<SignedFlowOption> {
     return new Promise((resolve) => {
-        term("[h] [a] [q] [z] [d] [o]")
+        term("[h] [a] [q] [z] [d] [o] [p]")
         term("\n")
 
         term.grabInput(true)
@@ -310,6 +329,13 @@ function getSignedFlowOption(): Promise<SignedFlowOption> {
                 term.removeListener("key", onKey)
                 term.grabInput(false)
                 resolve(SignedFlowOption.dialogs)
+                return
+            }
+
+            if (isProfile(name)) {
+                term.removeListener("key", onKey)
+                term.grabInput(false)
+                resolve(SignedFlowOption.profile)
                 return
             }
 
