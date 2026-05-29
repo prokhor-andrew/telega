@@ -1,22 +1,20 @@
 import { Api, TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/StringSession.js";
+import keytar from "keytar";
+import { type AccCredential, type AccInUse, SignedFlowOption } from "./types.js";
 import { input, password, select } from "@inquirer/prompts";
 import { ExitPromptError } from "@inquirer/core";
-import keytar from "keytar";
-import type { TotalList } from "telegram/Helpers.js";
-import type { Dialog } from "telegram/tl/custom/dialog.js";
 
-const tokenStorageName = "telega";
-const nameStorageName = "telega_name_storage" 
+import termkit from "terminal-kit"
+import { Logger, LogLevel } from "telegram/extensions/Logger.js";
 
-type EnvVariables = {
-    apiId: number,
-    apiHash: string,
-}
+const term = termkit.terminal
 
-type SelectItem = {
-    name: string,
-    value: string,
+const storageName = "telega" 
+
+const env = { // insert real values later
+    apiHash: "6f0e62dc1fa7f09378d592c8ed6807e7",
+    apiId: 27054841,
 }
 
 main()
@@ -25,64 +23,199 @@ async function main(): Promise<void> {
     await mainFlow()
 }
 
-async function customSelect(args: {
-    message: string,
-    choices: readonly SelectItem[],
-}): Promise<string> {
-    const { message, choices } = args
-    try {
-        return await select({
-            message: message,
-            choices: choices,
-            loop: false,
-            theme: { keybindings: [ "vim" ] },
-        })
-    } catch (error) {
-        if (error instanceof ExitPromptError) {
-            process.exit(0)
+async function selectAccount(accounts: AccCredential[], index: number): Promise<AccCredential> {
+    return new Promise((resolve) => {
+        let selectedIndex = index
+        function render() {
+            term.clear()
+            term("[q] [h] [a]")
+            term("\n")
+            accounts.forEach((account, index) => {
+                if (selectedIndex === index) {
+                    term(`> ${account.name}`)
+                } else {
+                    term(account.name)
+                }
+                term("\n")
+
+            })
         }
-        throw error
-    }
+        render()
+
+        term.grabInput(true)
+
+        function onKey(name: string) {
+            if (isQuit(name)) {
+                term.removeListener("key", onKey)
+                term.grabInput(false)
+                process.exit(0)
+            }
+
+            if (isAddAccount(name)) {
+                term.removeListener("key", onKey)
+                term.grabInput(false)
+                addAccount().then((credential) => {
+                    selectAccount([...accounts, credential], 0)
+                })
+                return
+            }
+
+            if (isHelp(name)) {
+                term("Help goes here")
+                term("\n")
+                return
+            }
+
+            if (name === "j") {
+                if (selectedIndex !== accounts.length - 1) {
+                    selectedIndex += 1
+                    render()
+                }
+                return
+            }
+
+            if (name === "k") {
+                if (selectedIndex !== 0) {
+                    selectedIndex -= 1
+                    render()
+                }
+                return
+            }
+
+            if (name === "ENTER") {
+                if (accounts.length === 0) {
+                    return
+                }
+
+                const credential = accounts[selectedIndex]
+                if (credential === undefined) {
+                    return
+                }
+                term.removeListener("key", onKey)
+                term.grabInput(false)
+                resolve(credential)
+                return
+            }
+        }
+
+        term.on("key", onKey)
+    })
 }
 
 async function mainFlow(): Promise<void> {
-    const accountsMap = await getAccounts()    
-    const items = mapToSelectItemList(accountsMap)
+    const accounts = await getAccounts()    
 
-    const choice = await customSelect({
-        message: "Select:",
-        choices: [
-            ...items,
-            { name: "Add Account", value: "add_account" },
-            { name: "Quit", value: "quit_value" },
-        ],
-    })
-
-    const env = getEnvVariables()
-    switch (choice) {
-        case "quit_value": 
-            process.exit(0) 
-        case "add_account":
-            await addAccount(env)
-        await mainFlow()
-        break
-        default:
-            const userToken = choice 
-        const client = await useAccount(userToken, env)
-        await signedFlow(client)
-        break
+    if (accounts.length === 0) {
+        const credential = await addAccount()
+        const accInUse = await useAccount(credential)
+        term.clear()
+        term(accInUse.cred.name)
+        term("\n")
+        await signedFlow(accInUse)
+        return
     }
+
+    if (accounts.length === 1) {
+        const credential = accounts[0]
+        if (credential === undefined) {
+            return
+        }
+
+        const accInUse = await useAccount(credential)
+        term.clear()
+        term(accInUse.cred.name)
+        term("\n")
+        await signedFlow(accInUse)
+        return
+    }
+
+
+    const credential = await selectAccount(accounts, 0)
+    const accInUse = await useAccount(credential)
+    
+    term.clear()
+    term(accInUse.cred.name)
+    term("\n")
+
+    await signedFlow(accInUse)
 }
 
-async function useAccount(userToken: string, env: EnvVariables): Promise<TelegramClient> {
-    const session = new StringSession(userToken) 
+async function signedFlow(accInUse: AccInUse): Promise<void> {
+    const action = await getSignedFlowOption() 
+
+    switch (action) {
+        case SignedFlowOption.help:
+            term("Help is going to be here later")
+            term("\n")
+            await signedFlow(accInUse)
+            break
+        case SignedFlowOption.quit:
+            process.exit(0) 
+        case SignedFlowOption.addAccount:
+            await addAccount()
+            await signedFlow(accInUse)
+            break
+        case SignedFlowOption.signOut:
+            try {
+                const choice = await select({
+                    message: "Are you sure you want to sign out?",
+                    choices: [
+                        { name: "Yes", value: true },
+                        { name: "No", value: false },
+                    ],
+                    theme: {
+                        keybindings: [ "vim" ],
+                    },
+                })
+
+                if (choice) {
+                    await Promise.all([
+                        accInUse.client.invoke(new Api.auth.LogOut()),
+                        keytar.deletePassword(storageName, accInUse.cred.userId),
+                    ])
+                    await mainFlow()
+                } else {
+                    await signedFlow(accInUse)
+                }
+            } catch (error) {
+                if (error instanceof ExitPromptError) {
+                    process.exit(0)
+                }
+                throw error
+            }
+
+            break
+        case SignedFlowOption.dialogs:
+            term("dialogs")
+            term("\n")
+            break
+        case SignedFlowOption.switchAccount:
+            const accounts = await getAccounts() 
+            const currentIndex = accounts.findIndex((account) => {
+                return account.userId === accInUse.cred.userId
+            }) ?? 0 
+            const account = await selectAccount(accounts, currentIndex) 
+            const newAccInUse = await useAccount(account)
+            await signedFlow(newAccInUse)
+            break
+    }
+       
+}
+
+async function useAccount(credential: AccCredential): Promise<AccInUse> {
+    const session = new StringSession(credential.token) 
     const client = new TelegramClient(session, env.apiId, env.apiHash, {
-        reconnectRetries: 5
+        reconnectRetries: 5,
+        baseLogger: new Logger(LogLevel.NONE),
     }) 
 
     await client.connect()
-    return client
+    return { 
+        cred: credential, 
+        client: client 
+    }
 }
+
 
 function getVisibleName(me: Api.User): string {
     const firstName = me.firstName ?? ""
@@ -113,106 +246,90 @@ function getVisibleName(me: Api.User): string {
     return `${me.id}`
 }
 
-async function signedFlow(client: TelegramClient) : Promise<void> {
-    const me = await client.getMe()
-
-    const userId = `${me.id}`
-
-    const name = getVisibleName(me)
-
-    const accountsMap = await getAccounts()
-    accountsMap.delete(userId)
-
-    const items = mapToSelectItemList(accountsMap) 
-
-
-    await step1Scope(client, userId, name, items)
+function isQuit(command: string): boolean {
+    return command === "q" || command === "CTRL_C"
 }
 
-async function step1Scope(
-    client: TelegramClient,
-    userId: string,
-    name: string, 
-    items: SelectItem[]
-): Promise<void> {
-    const choice = await customSelect({
-        message: `${name}`,
-        choices: [
-            { name: "Get Chats", value: "get_chats" },
-            ...items,
-            { name: "Sign Out", value: "sign_out" },
-            { name: "Add Account", value: "add_account" },
-            { name: "Quit", value: "quit_value" },
-        ],
-    }) 
+function isHelp(command: string): boolean {
+    return command === "h"
+}
 
-    switch (choice) {
-        case "get_chats": 
-            const dialogs = await client.getDialogs()
-        await showDialogs(client, userId, name, items, dialogs)
-        break
-        case "sign_out": 
-            await client.invoke(new Api.auth.LogOut())
-        await keytar.deletePassword(tokenStorageName, userId)
-        await keytar.deletePassword(nameStorageName, userId)
-        await mainFlow()
-        break
-        case "add_account":
-            await addAccount(client)
-        await signedFlow(client)
-        break
-        case "quit_value":
-            process.exit(0)
-        default:
-            const userToken = choice
-        const env = getEnvVariables()
-        await client.disconnect()
-        const newClient = await useAccount(userToken, env)
-        await signedFlow(newClient)
-        break
-    }
+function isAddAccount(command: string): boolean {
+    return command === "a"
+}
+
+function isDialogs(command: string): boolean {
+    return command === "d"
 } 
 
-async function showDialogs(
-    client: TelegramClient,
-    userId: string,
-    name: string,
-    mainMenuItems: SelectItem[],
-    dialogs: TotalList<Dialog>
-): Promise<void> {
-    const items = dialogs.map(dialog => {
-        const unreadStr = dialog.unreadCount !== 0 ? ` (${dialog.unreadCount} unread)` : ""
-        return {
-            name: dialog.title + unreadStr,     
-            value: `${dialog.id ?? 0}`
+function isSwitchAccount(command: string): boolean {
+    return command === "z"
+} 
+
+function isSignOut(command: string): boolean {
+    return command === "o"
+}
+
+function getSignedFlowOption(): Promise<SignedFlowOption> {
+    return new Promise((resolve) => {
+        term("[h] [a] [q] [z] [d] [o]")
+        term("\n")
+
+        term.grabInput(true)
+
+        function onKey(name: string) {
+            if (isHelp(name)) {
+                term.removeListener("key", onKey)
+                term.grabInput(false)
+                resolve(SignedFlowOption.help)
+                return
+            }
+
+            if (isQuit(name)) {
+                term.removeListener("key", onKey)
+                term.grabInput(false)
+                resolve(SignedFlowOption.quit)
+                return
+            }
+
+            if (isAddAccount(name)) {
+                term.removeListener("key", onKey)
+                term.grabInput(false)
+                resolve(SignedFlowOption.addAccount)
+                return
+            }
+
+            if (isSignOut(name)) {
+                term.removeListener("key", onKey)
+                term.grabInput(false)
+                resolve(SignedFlowOption.signOut)
+                return
+            }
+
+            if (isDialogs(name)) {
+                term.removeListener("key", onKey)
+                term.grabInput(false)
+                resolve(SignedFlowOption.dialogs)
+                return
+            }
+
+            if (isSwitchAccount(name)) {
+                term.removeListener("key", onKey)
+                term.grabInput(false)
+                resolve(SignedFlowOption.switchAccount)
+                return
+            }
         }
-    })
 
-    const choice = await customSelect({
-        message: "Dialogs:",
-        choices: [
-            { name: "Back", value: "back" },
-            ...items,
-        ],
+        term.on("key", onKey)
     })
-
-    switch (choice) {
-        case "back":
-            await step1Scope(client, userId, name, mainMenuItems)
-            break
-        default:
-            await showMessages(client, choice)
-            break
-    }
 }
 
-async function showMessages(client: TelegramClient, dialogId: string): Promise<void> {
-    console.log("dialog ID: " + dialogId)
-}
 
-async function addAccount(env: EnvVariables): Promise<void> {
+async function addAccount(): Promise<AccCredential> {
     const client = new TelegramClient(new StringSession(), env.apiId, env.apiHash, {
-        reconnectRetries: 5
+        reconnectRetries: 5,
+        baseLogger: new Logger(LogLevel.NONE),
     }) 
 
     await client.start({
@@ -228,17 +345,15 @@ async function addAccount(env: EnvVariables): Promise<void> {
     const name = getVisibleName(me)
 
     const userId = `${me.id}`
-    await keytar.setPassword(tokenStorageName, userId, newToken)
-    await keytar.setPassword(nameStorageName, userId, name)
+    await keytar.setPassword(storageName, userId, newToken + "!" + name)
 
     await client.disconnect()
-}
 
-function getEnvVariables(): EnvVariables {
-    return { // insert real values later
-        apiHash: "6f0e62dc1fa7f09378d592c8ed6807e7",
-        apiId: 27054841,
-    }
+    return {
+        userId: userId,
+        name: name, 
+        token: newToken,
+    } 
 }
 
 async function getPhoneNumber(): Promise<string> {
@@ -274,39 +389,18 @@ async function getPhoneCode(): Promise<string> {
     }
 }
 
-type NameToken = {
-    name: string,
-    token: string,
-}
+async function getAccounts(): Promise<AccCredential[]> {
+    const accounts = await keytar.findCredentials(storageName)
 
-async function getAccounts(): Promise<Map<string, NameToken>> {
-    const tokensAccounts = await keytar.findCredentials(tokenStorageName)
-    const namesAccounts = await keytar.findCredentials(nameStorageName) 
-
-    const accountsMap = new Map<string, NameToken>()
-
-    tokensAccounts.forEach(tokenAccount => {
-        namesAccounts.forEach(nameAccount => {
-            if (tokenAccount.account === nameAccount.account) {
-                accountsMap.set(
-                    nameAccount.account, 
-                    { 
-                        name: nameAccount.password, 
-                        token: tokenAccount.password 
-                    }
-                )
-            }
-        })
-    })
-    return accountsMap
-}
-
-function mapToSelectItemList(map: Map<string, NameToken>): SelectItem[] {
-    const items = map.entries().map((entry) => {
+    return accounts.map(item => {
+        const password = item.password
+        const bang = password.indexOf("!")
+        const token = password.slice(0, bang) 
+        const name = password.slice(bang + 1)
         return {
-            name: entry[1].name, 
-            value: entry[1].token,
+            userId: item.account,
+            name: name, 
+            token: token,
         }
     })
-    return [...items]
 }

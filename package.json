@@ -15,11 +15,12 @@
   "type": "module",
   "license": "MIT",
   "dependencies": {
-    "@inquirer/prompts": "^7.10.1",
     "@types/node": "^25.9.1",
+    "@types/terminal-kit": "^2.5.7",
+    "inquirer": "^12.11.1",
     "keytar": "^7.9.0",
-    "npx": "^3.0.0",
     "telegram": "^2.26.22",
+    "terminal-kit": "^3.1.2",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3"
   }
